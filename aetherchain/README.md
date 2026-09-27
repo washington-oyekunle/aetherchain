@@ -35,6 +35,13 @@ python3 -m aetherchain.demo
 python3 -m unittest discover -s tests -v
 ```
 
+## Documentation
+
+- [Comprehensive API reference](../docs/API.md)
+- [Architecture and threat model](../docs/ARCHITECTURE.md)
+- [Component architecture source](../docs/architecture.mmd)
+- [Transaction lifecycle source](../docs/transaction-flow.mmd)
+
 ## JSON-RPC
 
 ```python

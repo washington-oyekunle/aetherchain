@@ -1,0 +1,38 @@
+sequenceDiagram
+    autonumber
+    participant W as Wallet
+    participant C as Crypto
+    participant M as Mempool
+    participant N as Miner Blockchain
+    participant S as Staging UTXOState
+    participant P as Peer / RPC client
+    participant V as Validator node
+
+    W->>C: sign_hash(private_key, tx_digest)
+    C-->>W: (r, s) + public key
+    W->>M: add_transaction(signed_tx, live_state)
+    M->>C: verify_signature(public_key, tx_digest, signature)
+    C-->>M: valid / invalid
+    M->>M: reserve input UTXOs
+    M-->>W: accepted / rejected
+
+    P->>V: NEW_TRANSACTION or eth_sendRawTransaction
+    V->>M: validate and admit signed transaction
+
+    N->>M: get_batch(limit)
+    N->>S: clone live UTXO state
+    loop candidate transactions
+        N->>S: apply(tx)
+        S-->>N: fee or validation error
+    end
+    N->>S: apply_block(coinbase + valid txs)
+    S-->>N: committed candidate state_root
+    N->>N: build header and mine nonce
+    N->>N: append block + swap staged state
+    N-->>P: NEW_BLOCK broadcast
+
+    P->>V: serialized block
+    V->>V: validate_chain(chain + block)
+    V->>V: verify hash, PoW, difficulty, rewards
+    V->>V: replay UTXO transitions and state_root
+    V-->>P: accepted block or rejection

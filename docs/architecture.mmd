@@ -1,0 +1,44 @@
+flowchart TB
+    subgraph Clients[Clients and operators]
+        Wallet[UTXOWallet / Wallet]
+        RPCClient[JSON-RPC client]
+        Peer[Remote peer]
+        Operator[Operator / snapshot tooling]
+    end
+
+    subgraph Node[AetherChain node]
+        RPC[RPCNode\nThreadingHTTPServer]
+        P2P[P2PNode\nnewline-delimited TCP]
+        Mempool[Mempool\nRLock + conflict reservation]
+        Chain[Blockchain\nPoW + replay + fork choice]
+        Block[Block\nheader + Merkle root + state root]
+        State[UTXOState\natomic staging + state_root]
+        Crypto[crypto.py\nsecp256k1 ECDSA]
+        Ledger[ledger.py\ntransactions + UTXO rules]
+        Storage[storage.py\natomic JSON snapshots]
+    end
+
+    Wallet -->|sign transaction| Crypto
+    Wallet --> Ledger
+    RPCClient -->|HTTP JSON-RPC| RPC
+    Peer <-->|TCP JSON messages| P2P
+    Operator -->|save/load| Storage
+
+    RPC -->|submit signed tx| Mempool
+    P2P -->|submit signed tx| Mempool
+    RPC -->|read height, balance, blocks| Chain
+    P2P -->|validate blocks/chains| Chain
+    Mempool -->|candidate batch| Chain
+    Crypto -->|verify ownership/signatures| Ledger
+    Ledger -->|apply staged txs| State
+    Chain -->|mine and validate| Block
+    Chain -->|commit/replay| State
+    Storage -->|restore validated chain| Chain
+    Block -->|header commits| State
+
+    classDef boundary fill:#172033,stroke:#8aa4d6,color:#fff;
+    classDef core fill:#173b35,stroke:#6fc7a2,color:#fff;
+    classDef data fill:#4a2f19,stroke:#e2a866,color:#fff;
+    class RPCClient,Peer,Operator boundary;
+    class Chain,Block,State,Mempool,Crypto,Ledger core;
+    class Wallet,RPC,P2P,Storage data;
