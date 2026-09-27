@@ -114,14 +114,10 @@ class P2PNode:
         with self.blockchain._lock:
             if block.index != len(self.blockchain.chain) or block.previous_hash != self.blockchain.latest_block().hash:
                 return False
-            if block.hash != block.calculate_hash() or not block.hash.startswith("0" * block.difficulty):
+            valid, state, _ = self.blockchain.validate_chain(self.blockchain.chain + [block])
+            if not valid or state is None:
                 return False
-            staged = self.blockchain.state.clone()
-            try:
-                staged.apply_block(block.transactions, max_coinbase=self.blockchain.block_reward + 10**18)
-            except ValueError:
-                return False
-            self.blockchain.state = staged
+            self.blockchain.state = state
             self.blockchain.chain.append(block)
             self.blockchain.mempool.remove_transactions(block.transactions[1:])
             return True
@@ -133,23 +129,9 @@ class P2PNode:
                 return False
             try:
                 candidate = [self.deserialize_block(item) for item in raw_chain]
-                replay = self.blockchain.state.__class__()
-                for index, block in enumerate(candidate):
-                    if block.index != index or block.hash != block.calculate_hash():
-                        return False
-                    if not block.hash.startswith("0" * block.difficulty):
-                        return False
-                    if index == 0:
-                        if block.previous_hash != "0" * 64:
-                            return False
-                    elif block.previous_hash != candidate[index - 1].hash:
-                        return False
-                    replay.apply_block(block.transactions, max_coinbase=self.blockchain.block_reward + 10**18)
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 return False
-            self.blockchain.chain = candidate
-            self.blockchain.state = replay
-            return True
+            return self.blockchain.replace_chain(candidate)
 
     def _broadcast(self, kind: str, payload: dict[str, Any]) -> None:
         for host, port in list(self.peers):
@@ -183,11 +165,12 @@ class P2PNode:
     @classmethod
     def serialize_block(cls, block: Block) -> dict[str, Any]:
         return {"index": block.index, "previous_hash": block.previous_hash, "difficulty": block.difficulty,
-                "timestamp": block.timestamp, "nonce": block.nonce, "transactions": [cls.serialize_tx(t) for t in block.transactions]}
+                "timestamp": block.timestamp, "state_root": block.state_root, "nonce": block.nonce,
+                "transactions": [cls.serialize_tx(t) for t in block.transactions]}
 
     @classmethod
     def deserialize_block(cls, data: dict[str, Any]) -> Block:
         block = Block(int(data["index"]), data["previous_hash"], [cls.deserialize_tx(t) for t in data["transactions"]],
-                      int(data["difficulty"]), float(data["timestamp"]), int(data["nonce"]))
+                      int(data["difficulty"]), float(data["timestamp"]), data["state_root"], int(data["nonce"]))
         block.hash = block.calculate_hash()
         return block

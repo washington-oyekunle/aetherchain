@@ -1,33 +1,58 @@
 # AetherChain
 
-A zero-dependency Python implementation of a small, coherent blockchain engine assembled from the supplied components.
+A zero-dependency Python implementation of a compact, auditable blockchain node assembled from the supplied components.
 
-## Architecture choice
+## Protocol design
 
-This implementation uses **UTXO state + secp256k1 ECDSA + Proof of Work**. The supplied account/PBFT design is intentionally not mixed into the same state machine: PBFT and PoW have different finality, validator, and reward semantics.
+AetherChain deliberately selects one coherent branch: **UTXO state + secp256k1 ECDSA + Proof of Work**. The earlier account/PBFT ideas are not mixed into the same state machine because they have different transaction, finality, validator, and reward semantics.
 
-- Integer base units; no floating-point money
-- Canonical JSON transaction IDs
-- Pure-Python secp256k1 signing with deterministic RFC6979 nonces and low-`s` signatures
-- UTXO ownership, duplicate-input, conservation-of-value, and double-spend checks
-- Atomic staged block application
-- PoW blocks with Merkle roots and coinbase fee collection
-- Dynamic difficulty at epoch boundaries
+### Included
+
+- Integer base units; floating-point monetary values are rejected
+- Canonical transaction IDs and deterministic RFC6979 ECDSA signatures
+- Public-key ownership checks and low-`s` signature normalization
+- UTXO conservation, duplicate-input, ownership, replay, and double-spend protection
+- Deterministic `state_root` commitment in every block header
+- Merkle transaction roots and PoW validation
+- Atomic staged block application; invalid blocks cannot partially mutate state
+- Fee collection with strict coinbase subsidy-plus-fees enforcement
+- Historical difficulty validation and cumulative-work fork choice
 - Thread-safe mempool and chain state
-- Newline-delimited JSON TCP peer transport for local demos
+- Newline-delimited JSON TCP P2P transport with validated block/chain admission
+- JSON-RPC 2.0 HTTP node interface
+- Atomic JSON snapshots with validated restore
+- Standard-library-only runtime dependencies
 
-## Run
+## Run the demo
 
 ```bash
 python3 -m aetherchain.demo
 ```
 
-The package has no third-party runtime dependencies. The application repository's existing TypeScript site is unchanged.
-
-## Test
+## Run tests
 
 ```bash
-python3 -m pytest -q
+python3 -m unittest discover -s tests -v
 ```
 
-The P2P transport is deliberately a transport layer, not an unauthenticated fork-choice oracle. A production network should add peer authentication, rate limits, persistent storage, chain-work fork choice, and a formal wire-version scheme.
+## JSON-RPC
+
+```python
+from aetherchain import Blockchain, RPCNode
+
+rpc = RPCNode(Blockchain(difficulty=1), host="127.0.0.1", port=8545)
+rpc.start()
+```
+
+Supported methods include `eth_blockNumber`, `eth_getBalance`, `eth_getBlockByNumber`,
+`eth_sendRawTransaction`, `aether_getStateRoot`, and `aether_getMempool`.
+
+## Snapshots
+
+```python
+from aetherchain import load_chain, save_chain
+save_chain(blockchain, "data/chain.json")
+blockchain = load_chain("data/chain.json")
+```
+
+The P2P layer is intentionally a transport and admission layer, not a complete internet-scale network. Production deployment should add peer authentication, encrypted transport, rate limits, persistent append-only storage, chain-download pagination, and a finalized consensus protocol.
