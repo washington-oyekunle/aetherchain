@@ -27,6 +27,7 @@ The source-level component map is also available as [architecture.mmd](architect
 | `rpc.py` | JSON-RPC HTTP read/write surface | RPC parameters are untrusted; private keys are never accepted |
 | `storage.py` / `database.py` | Versioned JSON snapshots and SQLite restart persistence | Snapshots/databases are validated before becoming live state |
 | `node.py` | Unified lifecycle for chain, RPC, P2P, mining, and snapshots | Startup rollback and explicit shutdown |
+| `vm.py` | Deterministic gas-metered bytecode execution and contract sandbox | Experimental; not yet consensus-integrated |
 
 ## 3. Data model
 
@@ -150,13 +151,19 @@ Frames are capped at 1 MiB, message types are allowlisted, serialized block hash
 
 RPC never receives or generates private keys.
 
-## 9. Persistence
+## 9. Smart-contract execution boundary
+
+The VM is intentionally separated from the UTXO/PoW consensus path in this release. `VM` executes bounded bytecode deterministically; `ContractStore` provides deployment addresses, copy-on-write storage, calls, and a deterministic contract-store root. RPC exposes this layer for experimentation.
+
+Because contract deployments and calls are not yet represented by signed UTXO transactions, block bodies, replay rules, or SQLite snapshot state, two nodes do not currently replicate contract state through consensus. The next consensus-integration step should introduce a versioned contract transaction type, include the contract root in the block header, charge gas as a consensus-defined fee, and replay contract state during `validate_chain` before enabling public contracts.
+
+## 10. Persistence
 
 `save_chain` writes a versioned snapshot containing configuration and serialized blocks. It writes to a sibling temporary file, flushes and `fsync`s it, then atomically replaces the destination. `load_chain` reconstructs the configured node and refuses to return until the full chain has replay-validated. The CLI and `Node` use SQLite for restart-safe local persistence; the database stores configuration plus serialized blocks and is replay-validated on recovery.
 
 The snapshot is a recovery/export format, not an append-only database or crash-consistent multi-process journal.
 
-## 10. Concurrency model
+## 11. Concurrency model
 
 - `Blockchain._lock` protects chain/state replacement, mining, and validation-sensitive operations.
 - `Mempool._lock` protects pending transaction insertion, batch selection, and removal.
@@ -165,7 +172,7 @@ The snapshot is a recovery/export format, not an append-only database or crash-c
 
 Mining currently holds the blockchain lock through selection, staging, and PoW. That is simple and safe for the demo node but serializes mining and RPC state changes. A production implementation should snapshot a candidate template, release the lock during PoW, and revalidate the parent before commit.
 
-## 11. Threat model and production boundary
+## 12. Threat model and production boundary
 
 The implementation defends against malformed signatures, invalid curve points, invalid ownership, duplicate inputs, double spends, overpayment, bad links, invalid roots, and invalid PoW. It does **not** provide production-grade security against:
 

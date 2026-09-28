@@ -17,6 +17,8 @@ flowchart TB
         Ledger[ledger.py\ntransactions + UTXO rules]
         Storage[storage.py\natomic JSON snapshots]
         NodeRuntime[Node\nunified lifecycle]
+        VM[vm.py\ngas-metered VM]
+        Contracts[ContractStore\nexperimental state]
     end
 
     Wallet -->|sign transaction| Crypto
@@ -39,10 +41,13 @@ flowchart TB
     NodeRuntime -->|owns lifecycle| RPC
     NodeRuntime -->|owns lifecycle| P2P
     NodeRuntime -->|mines and snapshots| Chain
+    RPC -->|deploy/call/read| Contracts
+    Contracts -->|execute bytecode| VM
+    VM -.->|future consensus integration| Chain
 
     classDef boundary fill:#172033,stroke:#8aa4d6,color:#fff;
     classDef core fill:#173b35,stroke:#6fc7a2,color:#fff;
     classDef data fill:#4a2f19,stroke:#e2a866,color:#fff;
     class RPCClient,Peer,Operator boundary;
     class Chain,Block,State,Mempool,Crypto,Ledger core;
-    class Wallet,RPC,P2P,Storage,NodeRuntime data;
+    class Wallet,RPC,P2P,Storage,NodeRuntime,VM,Contracts data;

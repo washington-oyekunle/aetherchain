@@ -8,6 +8,7 @@ from typing import Any
 
 from .blockchain import Blockchain
 from .p2p import P2PNode
+from .vm import ContractStore, ExecutionContext, VM
 
 
 def quantity(value: int) -> str:
@@ -15,8 +16,10 @@ def quantity(value: int) -> str:
 
 
 class RPCNode:
-    def __init__(self, blockchain: Blockchain, host: str = "127.0.0.1", port: int = 8545):
+    def __init__(self, blockchain: Blockchain, host: str = "127.0.0.1", port: int = 8545,
+                 contracts: ContractStore | None = None):
         self.blockchain, self.host, self.port = blockchain, host, port
+        self.contracts = contracts or ContractStore()
         self.server: ThreadingHTTPServer | None = None
         self.thread: Thread | None = None
 
@@ -83,6 +86,32 @@ class RPCNode:
                 return quantity(self.blockchain.state.get_balance(address)), None
             if method == "aether_getStateRoot":
                 return self.blockchain.state.state_root(), None
+            if method == "aether_getContractStateRoot":
+                return self.contracts.state_root(), None
+            if method == "aether_vmExecute":
+                code = params[0]
+                calldata = bytes.fromhex(params[1].removeprefix("0x")) if len(params) > 1 else b""
+                result = VM(int(params[2]) if len(params) > 2 else 100_000).execute(code, calldata)
+                return self._execution_result(result), None
+            if method == "aether_contractDeploy":
+                creator, code = params[0], params[1]
+                contract, result = self.contracts.deploy(creator, code, int(params[2]) if len(params) > 2 else None)
+                if contract is None:
+                    return self._execution_result(result), {"code": -32001, "message": result.error}
+                return {"address": contract.address, **self._execution_result(result)}, None
+            if method == "aether_contractCall":
+                address, caller = params[0], params[1] if len(params) > 1 else "AETH_CALLER"
+                calldata = bytes.fromhex(params[2].removeprefix("0x")) if len(params) > 2 else b""
+                result = self.contracts.call(address, caller, calldata, gas_limit=int(params[3]) if len(params) > 3 else None)
+                if not result.success:
+                    return self._execution_result(result), {"code": -32002, "message": result.error}
+                return self._execution_result(result), None
+            if method == "aether_contractGet":
+                contract = self.contracts.get(params[0])
+                if contract is None:
+                    return None, None
+                return {"address": contract.address, "code": "0x" + contract.code.hex(),
+                        "storage": {str(k): v for k, v in sorted(contract.storage.items())}}, None
             if method == "aether_getChainStats":
                 return self.blockchain.stats(), None
             if method == "aether_getUtxos":
@@ -109,3 +138,9 @@ class RPCNode:
             return None, {"code": -32601, "message": "method not found"}
         except (IndexError, KeyError, TypeError, ValueError) as exc:
             return None, {"code": -32602, "message": str(exc)}
+
+    @staticmethod
+    def _execution_result(result: Any) -> dict[str, Any]:
+        return {"success": result.success, "gas_used": result.gas_used,
+                "return_data": "0x" + result.return_data.hex(), "logs": ["0x" + item.hex() for item in result.logs],
+                "error": result.error}

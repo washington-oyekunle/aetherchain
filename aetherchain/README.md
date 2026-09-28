@@ -36,6 +36,7 @@ AetherChain deliberately selects one coherent branch: **UTXO state + secp256k1 E
 - Atomic JSON snapshots with validated restore
 - Installable `aether` CLI with TOML configuration
 - SQLite-backed restart persistence and developer keystores
+- Experimental deterministic, gas-metered smart-contract VM
 - Standard-library-only runtime dependencies
 
 ## Run the demo
@@ -78,3 +79,7 @@ blockchain = load_chain("data/chain.json")
 ```
 
 The P2P layer is intentionally a transport and admission layer, not a complete internet-scale network. Production deployment should add peer authentication, encrypted transport, rate limits, persistent append-only storage, chain-download pagination, and a finalized consensus protocol.
+
+## Smart-contract VM status
+
+AetherChain includes an experimental deterministic stack VM and `ContractStore` with gas limits, bounded memory/stack, storage, deployment addresses, `RETURN`/`REVERT`, and JSON-RPC execution methods. Contract state is currently a sandbox layer and is **not yet included in UTXO transactions, PoW block replay, SQLite snapshots, or the consensus state root**. Do not use the VM for real-value contracts until contract execution is integrated into consensus and independently audited.

@@ -70,6 +70,7 @@ The CLI provides `config-init`, `wallet create`, `wallet show`, `node start`, `n
 | `P2PNode` | `p2p` | TCP transport and validated chain/block admission |
 | `RPCNode` | `rpc` | JSON-RPC 2.0 HTTP server |
 | `save_chain`, `load_chain` | `storage` | Atomic JSON snapshot persistence |
+| `VM`, `ContractStore` | `vm` | Deterministic gas-metered contract execution sandbox |
 
 ## `crypto` API
 
@@ -322,6 +323,42 @@ Requests use JSON-RPC 2.0:
 RPC errors use `-32601` for unknown methods, `-32602` for malformed parameters, and `-32000` for transaction rejection.
 
 `net_version` returns `"1"`, `web3_clientVersion` returns `"AetherChain/0.3.0"`, and `GET /health` returns `{"status":"ok"}` for process probes.
+
+## Smart-contract VM (experimental)
+
+`VM` executes a deliberately small deterministic bytecode set with an explicit gas limit, bounded stack, bounded memory, copy-on-write storage, and structured results. Supported instruction families include:
+
+- Arithmetic: `STOP`, `ADD`, `SUB`, `MUL`, `DIV`
+- Comparison: `LT`, `GT`, `EQ`, `ISZERO`
+- Storage/memory: `SLOAD`, `SSTORE`, `MLOAD`, `MSTORE`
+- Control flow: `JUMP`, `JUMPI`, `JUMPDEST`
+- Stack/context: `PUSH1`, `DUP1`, `SWAP1`, `CALLER`, `ORIGIN`, `CALLVALUE`
+- Output: `RETURN`, `REVERT`, `LOG0`
+
+Example returning the integer `5` as a 32-byte word:
+
+```python
+from aetherchain import VM
+
+code = bytes.fromhex("600260030160005260206000f3")
+result = VM(gas_limit=10_000).execute(code)
+assert result.success
+assert result.return_data[-1] == 5
+```
+
+`ContractStore.deploy(creator, code)` derives a deterministic address from creator, deployment nonce, and bytecode. `ContractStore.call(address, caller, calldata, value)` executes against contract storage and commits storage only when execution succeeds. `state_root()` deterministically commits the registered contract code and storage.
+
+The current VM is an **execution layer/sandbox**. Contract deployments and calls are not yet encoded in UTXO transactions, PoW block validation, SQLite snapshots, or the block `state_root`. The RPC contract methods are therefore suitable for experimentation and tooling, not real-value production contracts.
+
+### VM JSON-RPC methods
+
+| Method | Parameters | Result |
+|---|---|---|
+| `aether_vmExecute` | `[bytecode_hex, calldata_hex?, gas_limit?]` | Success, gas, return bytes, logs, error |
+| `aether_contractDeploy` | `[creator, bytecode_hex, gas_limit?]` | Contract address plus execution result |
+| `aether_contractCall` | `[address, caller?, calldata_hex?, gas_limit?]` | Execution result |
+| `aether_contractGet` | `[address]` | Address, code, and storage or `null` |
+| `aether_getContractStateRoot` | `[]` | Deterministic contract-store root |
 
 ## `storage` API
 
