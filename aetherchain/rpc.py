@@ -8,7 +8,7 @@ from typing import Any
 
 from .blockchain import Blockchain
 from .p2p import P2PNode
-from .vm import ContractStore, ExecutionContext, VM
+from .vm import ContractOperation, ContractStore, ExecutionContext, VM
 
 
 def quantity(value: int) -> str:
@@ -99,6 +99,11 @@ class RPCNode:
                 if contract is None:
                     return self._execution_result(result), {"code": -32001, "message": result.error}
                 return {"address": contract.address, **self._execution_result(result)}, None
+            if method == "aether_sendContractOperation":
+                operation = P2PNode.deserialize_contract_operation(params[0])
+                if not self.blockchain.contract_mempool.add_operation(operation, self.blockchain.contracts):
+                    return None, {"code": -32000, "message": "contract operation rejected"}
+                return operation.tx_id, None
             if method == "aether_contractCall":
                 address, caller = params[0], params[1] if len(params) > 1 else "AETH_CALLER"
                 calldata = bytes.fromhex(params[2].removeprefix("0x")) if len(params) > 2 else b""

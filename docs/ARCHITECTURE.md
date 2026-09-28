@@ -27,7 +27,7 @@ The source-level component map is also available as [architecture.mmd](architect
 | `rpc.py` | JSON-RPC HTTP read/write surface | RPC parameters are untrusted; private keys are never accepted |
 | `storage.py` / `database.py` | Versioned JSON snapshots and SQLite restart persistence | Snapshots/databases are validated before becoming live state |
 | `node.py` | Unified lifecycle for chain, RPC, P2P, mining, and snapshots | Startup rollback and explicit shutdown |
-| `vm.py` | Deterministic gas-metered bytecode execution and contract sandbox | Experimental; not yet consensus-integrated |
+| `vm.py` | Deterministic gas-metered bytecode execution and contract state | Signed operations replayed as part of block consensus |
 
 ## 3. Data model
 
@@ -151,11 +151,13 @@ Frames are capped at 1 MiB, message types are allowlisted, serialized block hash
 
 RPC never receives or generates private keys.
 
-## 9. Smart-contract execution boundary
+## 9. Smart-contract consensus
 
-The VM is intentionally separated from the UTXO/PoW consensus path in this release. `VM` executes bounded bytecode deterministically; `ContractStore` provides deployment addresses, copy-on-write storage, calls, and a deterministic contract-store root. RPC exposes this layer for experimentation.
+`ContractOperation` is a signed deploy/call object with sender nonce, bytecode/address, calldata, and gas limit. Operations enter a separate contract mempool, are included in blocks, and execute against a cloned `ContractStore` before the block commits. A failed operation rejects the candidate block and does not mutate live contract state.
 
-Because contract deployments and calls are not yet represented by signed UTXO transactions, block bodies, replay rules, or SQLite snapshot state, two nodes do not currently replicate contract state through consensus. The next consensus-integration step should introduce a versioned contract transaction type, include the contract root in the block header, charge gas as a consensus-defined fee, and replay contract state during `validate_chain` before enabling public contracts.
+Each block commits both the resulting `contract_root` and a deterministic contract-operation root in its header. `validate_chain` replays contract operations from genesis, verifies signatures and nonces, checks gas-metered execution, and compares the resulting root. P2P and SQLite serialization carry the signed operations, so peers and restarts reconstruct the same contract state.
+
+The current release meters gas but does not yet convert gas usage into a monetary fee. Before public real-value contracts, add a consensus-defined gas price/fee transaction rule, audited cryptography, bytecode versioning, and a formal VM specification.
 
 ## 10. Persistence
 

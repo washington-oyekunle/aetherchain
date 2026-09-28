@@ -1,6 +1,9 @@
 import unittest
+import tempfile
+from pathlib import Path
 
-from aetherchain import Blockchain, ContractStore, RPCNode, VM, VMError
+from aetherchain import Blockchain, ContractOperation, ContractStore, RPCNode, UTXOWallet, VM, VMError, load_chain_sqlite, save_chain_sqlite
+from aetherchain.p2p import P2PNode
 
 
 class VMTests(unittest.TestCase):
@@ -45,6 +48,33 @@ class VMTests(unittest.TestCase):
         response, error = rpc.handle({"id": 2, "method": "aether_vmExecute", "params": ["6002600301"]})
         self.assertIsNone(error)
         self.assertTrue(response["success"])
+
+    def test_signed_operations_are_consensus_replayed(self):
+        chain = Blockchain(difficulty=0)
+        wallet = UTXOWallet()
+        deploy = ContractOperation("deploy", wallet.address, 0, code=bytes.fromhex("600060005260206000f3"))
+        deploy.sign(wallet)
+        self.assertTrue(chain.contract_mempool.add_operation(deploy, chain.contracts))
+        block = chain.mine_pending_transactions(wallet.address)
+        self.assertIsNotNone(block)
+        self.assertTrue(chain.is_chain_valid())
+        self.assertEqual(chain.contracts.state_root(), block.contract_root)
+        round_trip = P2PNode.deserialize_block(P2PNode.serialize_block(block))
+        self.assertEqual(round_trip.contract_operations[0].tx_id, deploy.tx_id)
+        call = ContractOperation("call", wallet.address, 1, address=next(iter(chain.contracts.contracts)))
+        call.sign(wallet)
+        self.assertTrue(chain.contract_mempool.add_operation(call, chain.contracts))
+
+        bad_nonce = ContractOperation("call", wallet.address, 1, address=next(iter(chain.contracts.contracts)))
+        bad_nonce.sign(wallet)
+        self.assertFalse(chain.contract_mempool.add_operation(bad_nonce, chain.contracts))
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "chain.sqlite3"
+            save_chain_sqlite(chain, path)
+            restored = load_chain_sqlite(path)
+            self.assertTrue(restored.is_chain_valid())
+            self.assertEqual(restored.contracts.state_root(), chain.contracts.state_root())
 
 
 if __name__ == "__main__":

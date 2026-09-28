@@ -13,14 +13,16 @@ from typing import Any, Optional
 
 from .blockchain import Block, Blockchain
 from .ledger import TransactionInput, TransactionOutput, UTXOTransaction
+from .vm import ContractOperation
 
 HANDSHAKE = "HANDSHAKE"
 GET_CHAIN = "GET_CHAIN"
 CHAIN_RESPONSE = "CHAIN_RESPONSE"
 NEW_TRANSACTION = "NEW_TRANSACTION"
 NEW_BLOCK = "NEW_BLOCK"
+NEW_CONTRACT_OPERATION = "NEW_CONTRACT_OPERATION"
 MAX_FRAME_BYTES = 1_048_576
-MESSAGE_TYPES = {HANDSHAKE, GET_CHAIN, CHAIN_RESPONSE, NEW_TRANSACTION, NEW_BLOCK}
+MESSAGE_TYPES = {HANDSHAKE, GET_CHAIN, CHAIN_RESPONSE, NEW_TRANSACTION, NEW_BLOCK, NEW_CONTRACT_OPERATION}
 
 
 class P2PNode:
@@ -66,6 +68,9 @@ class P2PNode:
 
     def broadcast_block(self, block: Block) -> None:
         self._broadcast(NEW_BLOCK, self.serialize_block(block))
+
+    def broadcast_contract_operation(self, operation: ContractOperation) -> None:
+        self._broadcast(NEW_CONTRACT_OPERATION, self.serialize_contract_operation(operation))
 
     def _accept_loop(self) -> None:
         assert self._server is not None
@@ -114,6 +119,9 @@ class P2PNode:
         elif kind == NEW_TRANSACTION:
             tx = self.deserialize_tx(payload)
             self.blockchain.mempool.add_transaction(tx, self.blockchain.state)
+        elif kind == NEW_CONTRACT_OPERATION:
+            operation = self.deserialize_contract_operation(payload)
+            self.blockchain.contract_mempool.add_operation(operation, self.blockchain.contracts)
         elif kind == NEW_BLOCK:
             self._accept_block(self.deserialize_block(payload))
         return address
@@ -128,6 +136,7 @@ class P2PNode:
             self.blockchain.state = state
             self.blockchain.chain.append(block)
             self.blockchain.mempool.remove_transactions(block.transactions[1:])
+            self.blockchain.contract_mempool.remove_operations(block.contract_operations)
             return True
 
     def _adopt_longer_chain(self, raw_chain: list[dict[str, Any]]) -> bool:
@@ -175,17 +184,38 @@ class P2PNode:
             tx.signature = (int(data["signature"][0]), int(data["signature"][1]))
         return tx
 
+    @staticmethod
+    def serialize_contract_operation(operation: ContractOperation) -> dict[str, Any]:
+        return {"action": operation.action, "sender": operation.sender, "nonce": operation.nonce,
+                "code": operation.code.hex(), "address": operation.address, "calldata": operation.calldata.hex(),
+                "gas_limit": operation.gas_limit, "pubkey": list(operation.sender_pubkey) if operation.sender_pubkey else None,
+                "signature": list(operation.signature) if operation.signature else None}
+
+    @staticmethod
+    def deserialize_contract_operation(data: dict[str, Any]) -> ContractOperation:
+        operation = ContractOperation(data["action"], data["sender"], int(data["nonce"]),
+                                      bytes.fromhex(data.get("code", "")), data.get("address"),
+                                      bytes.fromhex(data.get("calldata", "")), int(data.get("gas_limit", 100_000)))
+        if data.get("pubkey"):
+            operation.sender_pubkey = (int(data["pubkey"][0]), int(data["pubkey"][1]))
+        if data.get("signature"):
+            operation.signature = (int(data["signature"][0]), int(data["signature"][1]))
+        return operation
+
     @classmethod
     def serialize_block(cls, block: Block) -> dict[str, Any]:
         return {"index": block.index, "previous_hash": block.previous_hash, "difficulty": block.difficulty,
                 "timestamp": block.timestamp, "state_root": block.state_root, "nonce": block.nonce,
-                "hash": block.hash,
+                "hash": block.hash, "contract_root": block.contract_root,
+                "contract_operations": [cls.serialize_contract_operation(o) for o in block.contract_operations],
                 "transactions": [cls.serialize_tx(t) for t in block.transactions]}
 
     @classmethod
     def deserialize_block(cls, data: dict[str, Any]) -> Block:
         block = Block(int(data["index"]), data["previous_hash"], [cls.deserialize_tx(t) for t in data["transactions"]],
-                      int(data["difficulty"]), float(data["timestamp"]), data["state_root"], int(data["nonce"]))
+                      int(data["difficulty"]), float(data["timestamp"]), data["state_root"], int(data["nonce"]),
+                      contract_root=data.get("contract_root", ""),
+                      contract_operations=[cls.deserialize_contract_operation(o) for o in data.get("contract_operations", [])])
         block.hash = block.calculate_hash()
         if data.get("hash") not in (None, block.hash):
             raise ValueError("serialized block hash mismatch")

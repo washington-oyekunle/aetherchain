@@ -11,6 +11,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .crypto import Point, Wallet, address_from_public_key, sign_hash, verify_signature
+
 # Small, explicit instruction set. Bytecode is represented as raw bytes or hex.
 STOP, ADD, SUB, MUL, DIV = 0x00, 0x01, 0x02, 0x03, 0x04
 LT, GT, EQ, ISZERO = 0x10, 0x11, 0x12, 0x13
@@ -41,6 +43,51 @@ class ExecutionContext:
     origin: str = "AETH_CALLER"
     value: int = 0
     address: str = "AETH_CONTRACT"
+
+
+@dataclass
+class ContractOperation:
+    """Signed deploy/call operation included in a consensus block."""
+
+    action: str
+    sender: str
+    nonce: int
+    code: bytes = b""
+    address: str | None = None
+    calldata: bytes = b""
+    gas_limit: int = 100_000
+    sender_pubkey: Optional[Point] = None
+    signature: Optional[tuple[int, int]] = None
+
+    def payload(self) -> dict[str, object]:
+        return {"action": self.action, "sender": self.sender, "nonce": self.nonce,
+                "code": self.code.hex(), "address": self.address, "calldata": self.calldata.hex(),
+                "gas_limit": self.gas_limit}
+
+    @property
+    def tx_id(self) -> str:
+        return hashlib.sha256(json.dumps(self.payload(), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def sign(self, wallet: Wallet) -> None:
+        if wallet.address != self.sender:
+            raise ValueError("wallet address does not match operation sender")
+        self.sender_pubkey = wallet.public_key
+        self.signature = sign_hash(wallet.private_key, bytes.fromhex(self.tx_id))
+
+    def validate(self) -> tuple[bool, str]:
+        if self.action not in {"deploy", "call"} or self.nonce < 0 or self.gas_limit < 1:
+            return False, "invalid contract operation fields"
+        if self.action == "deploy" and not self.code:
+            return False, "deploy operation has no bytecode"
+        if self.action == "call" and not self.address:
+            return False, "call operation has no address"
+        if self.sender_pubkey is None or self.signature is None:
+            return False, "contract operation is unsigned"
+        if address_from_public_key(self.sender_pubkey) != self.sender:
+            return False, "operation sender does not match public key"
+        if not verify_signature(self.sender_pubkey, bytes.fromhex(self.tx_id), self.signature):
+            return False, "invalid contract operation signature"
+        return True, ""
 
 
 @dataclass
@@ -225,6 +272,42 @@ class ContractStore:
 
     def get(self, address: str) -> Contract | None:
         return self.contracts.get(address)
+
+    def clone(self) -> "ContractStore":
+        cloned = ContractStore(self.vm)
+        cloned.contracts = {address: Contract(c.address, c.code, dict(c.storage), c.nonce)
+                            for address, c in self.contracts.items()}
+        cloned._nonces = dict(self._nonces)
+        return cloned
+
+    def apply_operation(self, operation: ContractOperation) -> ExecutionResult:
+        valid, reason = operation.validate()
+        if not valid:
+            return ExecutionResult(False, 0, error=reason)
+        if operation.action == "deploy":
+            expected_nonce = self._nonces.get(operation.sender, 0)
+            if operation.nonce != expected_nonce:
+                return ExecutionResult(False, 0, error="invalid contract nonce")
+            contract, result = self.deploy(operation.sender, operation.code, operation.gas_limit)
+            if contract is not None:
+                contract.nonce = operation.nonce
+            return result
+        expected_nonce = self._nonces.get(operation.sender, 0)
+        if operation.nonce != expected_nonce:
+            return ExecutionResult(False, 0, error="invalid contract nonce")
+        result = self.call(operation.address or "", operation.sender, operation.calldata, gas_limit=operation.gas_limit)
+        if result.success:
+            self._nonces[operation.sender] = expected_nonce + 1
+        return result
+
+    def apply_operations(self, operations: list[ContractOperation]) -> None:
+        staged = self.clone()
+        for operation in operations:
+            result = staged.apply_operation(operation)
+            if not result.success:
+                raise ValueError(result.error or "contract operation failed")
+        self.contracts = staged.contracts
+        self._nonces = staged._nonces
 
     def state_root(self) -> str:
         leaves = [json.dumps({"address": c.address, "code": c.code.hex(), "storage": sorted(c.storage.items())}, sort_keys=True)

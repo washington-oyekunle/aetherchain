@@ -39,5 +39,7 @@ def load_chain_sqlite(path: str | Path) -> Blockchain:
     if not valid or state is None:
         raise ValueError(f"invalid chain database: {reason}")
     chain.chain, chain.state = candidate, state
+    for block in candidate:
+        chain.contracts.apply_operations(block.contract_operations)
     chain.difficulty = chain.latest_block().difficulty
     return chain

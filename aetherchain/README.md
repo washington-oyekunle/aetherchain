@@ -80,6 +80,25 @@ blockchain = load_chain("data/chain.json")
 
 The P2P layer is intentionally a transport and admission layer, not a complete internet-scale network. Production deployment should add peer authentication, encrypted transport, rate limits, persistent append-only storage, chain-download pagination, and a finalized consensus protocol.
 
-## Smart-contract VM status
+## Smart contracts and playground
 
-AetherChain includes an experimental deterministic stack VM and `ContractStore` with gas limits, bounded memory/stack, storage, deployment addresses, `RETURN`/`REVERT`, and JSON-RPC execution methods. Contract state is currently a sandbox layer and is **not yet included in UTXO transactions, PoW block replay, SQLite snapshots, or the consensus state root**. Do not use the VM for real-value contracts until contract execution is integrated into consensus and independently audited.
+AetherChain now includes signed `ContractOperation` deploy/call transactions. They enter a contract mempool, are included in mined blocks, execute atomically during block replay, and commit `contract_root` plus a contract-operation root in each block header. SQLite and P2P block serialization preserve these operations.
+
+Try the interactive CLI playground:
+
+```bash
+aether contract playground wallet.json --password change-me
+```
+
+Inside the playground:
+
+```text
+deploy 600060005260206000f3
+mine
+status
+call AETHC...
+mine
+exit
+```
+
+The VM remains an educational runtime and requires an audit before real-value contracts, but contract state is now part of local consensus replay and chain validation.

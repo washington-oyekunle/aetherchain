@@ -9,6 +9,7 @@ from .database import load_chain_sqlite, save_chain_sqlite
 from .p2p import P2PNode
 from .rpc import RPCNode
 from .storage import save_chain
+from .vm import ContractOperation
 
 
 class Node:
@@ -67,6 +68,12 @@ class Node:
             self.p2p.broadcast_block(block)
             self.persist()
         return block
+
+    def submit_contract_operation(self, operation: ContractOperation) -> bool:
+        accepted = self.blockchain.contract_mempool.add_operation(operation, self.blockchain.contracts)
+        if accepted:
+            self.p2p.broadcast_contract_operation(operation)
+        return accepted
 
     def snapshot(self, path: str | Path) -> None:
         save_chain(self.blockchain, path)

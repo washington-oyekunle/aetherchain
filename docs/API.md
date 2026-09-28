@@ -167,6 +167,8 @@ Properties and methods:
 - `calculate_hash() -> str`: SHA-256 of canonical header JSON.
 - `mine() -> None`: increments `nonce` until the hash begins with `"0" * difficulty`.
 
+Blocks also expose `contract_root` and `contract_operations`. The header commits the post-block contract root and a deterministic root over signed contract-operation IDs.
+
 ### `Blockchain(...)`
 
 Constructor defaults:
@@ -202,7 +204,7 @@ Methods:
 - `mine_pending_transactions(miner_address, max_transactions=10) -> Block | None`: selects valid mempool transactions, collects fees, creates coinbase, commits the state root, mines, and removes included transactions.
 - `get_transaction(tx_id) -> UTXOTransaction | None`: searches pending and confirmed transactions.
 - `stats() -> dict`: returns height, difficulty, cumulative work, state root, UTXO count, and mempool size.
-- `validate_chain(candidate) -> tuple[bool, UTXOState | None, str]`: replay-validates links, hashes, PoW, difficulty, state transitions, roots, and rewards.
+- `validate_chain(candidate) -> tuple[bool, UTXOState | None, str]`: replay-validates links, hashes, PoW, difficulty, UTXO transitions, signed contract operations, both state roots, and rewards.
 - `replace_chain(candidate) -> bool`: adopts only a valid candidate with strictly greater cumulative work.
 - `is_chain_valid() -> bool`: validates the current chain and compares replayed state to live state.
 
@@ -348,7 +350,20 @@ assert result.return_data[-1] == 5
 
 `ContractStore.deploy(creator, code)` derives a deterministic address from creator, deployment nonce, and bytecode. `ContractStore.call(address, caller, calldata, value)` executes against contract storage and commits storage only when execution succeeds. `state_root()` deterministically commits the registered contract code and storage.
 
-The current VM is an **execution layer/sandbox**. Contract deployments and calls are not yet encoded in UTXO transactions, PoW block validation, SQLite snapshots, or the block `state_root`. The RPC contract methods are therefore suitable for experimentation and tooling, not real-value production contracts.
+### Consensus operations
+
+`ContractOperation` is the signed consensus object for deployment and calls:
+
+```python
+operation = ContractOperation("deploy", wallet.address, nonce=0, code=bytecode, gas_limit=100_000)
+operation.sign(wallet)
+blockchain.contract_mempool.add_operation(operation, blockchain.contracts)
+blockchain.mine_pending_transactions(miner.address)
+```
+
+Blocks commit the resulting `contract_root` and a deterministic contract-operation root. `validate_chain` replays operations atomically, checks signatures and nonces, and rejects a mismatched contract root. SQLite snapshots and P2P block serialization preserve the operation list.
+
+For a guided workflow, use `aether contract playground wallet.json --password ...`.
 
 ### VM JSON-RPC methods
 
@@ -359,6 +374,7 @@ The current VM is an **execution layer/sandbox**. Contract deployments and calls
 | `aether_contractCall` | `[address, caller?, calldata_hex?, gas_limit?]` | Execution result |
 | `aether_contractGet` | `[address]` | Address, code, and storage or `null` |
 | `aether_getContractStateRoot` | `[]` | Deterministic contract-store root |
+| `aether_sendContractOperation` | `[serialized_signed_operation]` | Contract operation ID after mempool validation |
 
 ## `storage` API
 

@@ -46,5 +46,7 @@ def load_chain(path: str | os.PathLike[str]) -> Blockchain:
         raise ValueError(f"invalid snapshot: {reason}")
     blockchain.chain = candidate
     blockchain.state = state
+    for block in candidate:
+        blockchain.contracts.apply_operations(block.contract_operations)
     blockchain.difficulty = blockchain.latest_block().difficulty
     return blockchain

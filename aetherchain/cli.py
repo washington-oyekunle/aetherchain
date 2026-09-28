@@ -14,6 +14,7 @@ from .crypto import Wallet
 from .database import load_chain_sqlite
 from .keystore import load_keystore, save_keystore
 from .node import Node
+from .vm import ContractOperation
 
 
 def _config(args: argparse.Namespace) -> NodeConfig:
@@ -76,6 +77,73 @@ def cmd_mine(args: argparse.Namespace) -> int:
     return 0
 
 
+def _wallet_for(args: argparse.Namespace):
+    node = _node_from_config(args)
+    password = args.password or getpass.getpass("Keystore password: ")
+    return node, load_keystore(args.keystore, password)
+
+
+def cmd_contract_deploy(args: argparse.Namespace) -> int:
+    node, wallet = _wallet_for(args)
+    nonce = node.blockchain.contracts._nonces.get(wallet.address, 0)
+    operation = ContractOperation("deploy", wallet.address, nonce, code=bytes.fromhex(args.code.removeprefix("0x")), gas_limit=args.gas)
+    operation.sign(wallet)
+    if not node.submit_contract_operation(operation):
+        print("Contract operation rejected", file=sys.stderr)
+        return 1
+    print(json.dumps({"tx_id": operation.tx_id, "nonce": nonce, "status": "pending"}, indent=2))
+    return 0
+
+
+def cmd_contract_call(args: argparse.Namespace) -> int:
+    node, wallet = _wallet_for(args)
+    nonce = node.blockchain.contracts._nonces.get(wallet.address, 0)
+    operation = ContractOperation("call", wallet.address, nonce, address=args.address,
+                                  calldata=bytes.fromhex(args.calldata.removeprefix("0x")), gas_limit=args.gas)
+    operation.sign(wallet)
+    if not node.submit_contract_operation(operation):
+        print("Contract operation rejected", file=sys.stderr)
+        return 1
+    print(json.dumps({"tx_id": operation.tx_id, "nonce": nonce, "status": "pending"}, indent=2))
+    return 0
+
+
+def cmd_contract_playground(args: argparse.Namespace) -> int:
+    node, wallet = _wallet_for(args)
+    print("AetherChain contract playground. Commands: deploy HEX, call ADDRESS [HEX], mine, status, exit")
+    while True:
+        try:
+            line = input("contract> ").strip()
+        except EOFError:
+            break
+        if not line or line == "status":
+            print(json.dumps(node.blockchain.stats(), indent=2))
+            continue
+        if line in {"exit", "quit"}:
+            break
+        parts = line.split()
+        try:
+            if parts[0] == "deploy" and len(parts) == 2:
+                nonce = node.blockchain.contracts._nonces.get(wallet.address, 0)
+                operation = ContractOperation("deploy", wallet.address, nonce, code=bytes.fromhex(parts[1].removeprefix("0x")))
+            elif parts[0] == "call" and len(parts) in {2, 3}:
+                nonce = node.blockchain.contracts._nonces.get(wallet.address, 0)
+                operation = ContractOperation("call", wallet.address, nonce, address=parts[1],
+                                              calldata=bytes.fromhex(parts[2].removeprefix("0x")) if len(parts) == 3 else b"")
+            elif parts[0] == "mine":
+                block = node.mine_once(wallet.address)
+                print(json.dumps({"height": block.index if block else None, "valid": node.blockchain.is_chain_valid()}, indent=2))
+                continue
+            else:
+                print("Usage: deploy HEX | call ADDRESS [HEX] | mine | status | exit")
+                continue
+            operation.sign(wallet)
+            print("submitted", operation.tx_id if node.submit_contract_operation(operation) else "rejected")
+        except (ValueError, IndexError) as exc:
+            print(f"error: {exc}")
+    return 0
+
+
 def cmd_node_start(args: argparse.Namespace) -> int:
     node = _node_from_config(args)
     node.start()
@@ -118,6 +186,17 @@ def build_parser() -> argparse.ArgumentParser:
     mine = sub.add_parser("mine", help="mine one block using a wallet address")
     mine.add_argument("address")
     mine.set_defaults(func=cmd_mine)
+    contract = sub.add_parser("contract", help="deploy and test consensus contract operations")
+    contract_sub = contract.add_subparsers(dest="contract_command", required=True)
+    deploy = contract_sub.add_parser("deploy")
+    deploy.add_argument("keystore", type=Path); deploy.add_argument("--code", required=True); deploy.add_argument("--password"); deploy.add_argument("--gas", type=int, default=100_000)
+    deploy.set_defaults(func=cmd_contract_deploy)
+    call = contract_sub.add_parser("call")
+    call.add_argument("keystore", type=Path); call.add_argument("address"); call.add_argument("--calldata", default=""); call.add_argument("--password"); call.add_argument("--gas", type=int, default=100_000)
+    call.set_defaults(func=cmd_contract_call)
+    playground = contract_sub.add_parser("playground")
+    playground.add_argument("keystore", type=Path); playground.add_argument("--password")
+    playground.set_defaults(func=cmd_contract_playground)
     return parser
 
 
