@@ -16,6 +16,7 @@ flowchart TB
         Crypto[crypto.py\nsecp256k1 ECDSA]
         Ledger[ledger.py\ntransactions + UTXO rules]
         Storage[storage.py\natomic JSON snapshots]
+        NodeRuntime[Node\nunified lifecycle]
     end
 
     Wallet -->|sign transaction| Crypto
@@ -35,10 +36,13 @@ flowchart TB
     Chain -->|commit/replay| State
     Storage -->|restore validated chain| Chain
     Block -->|header commits| State
+    NodeRuntime -->|owns lifecycle| RPC
+    NodeRuntime -->|owns lifecycle| P2P
+    NodeRuntime -->|mines and snapshots| Chain
 
     classDef boundary fill:#172033,stroke:#8aa4d6,color:#fff;
     classDef core fill:#173b35,stroke:#6fc7a2,color:#fff;
     classDef data fill:#4a2f19,stroke:#e2a866,color:#fff;
     class RPCClient,Peer,Operator boundary;
     class Chain,Block,State,Mempool,Crypto,Ledger core;
-    class Wallet,RPC,P2P,Storage data;
+    class Wallet,RPC,P2P,Storage,NodeRuntime data;

@@ -5,7 +5,8 @@ from .ledger import TransactionInput, TransactionOutput, UTXO, UTXOState, UTXOTr
 from .p2p import P2PNode
 from .rpc import RPCNode
 from .storage import load_chain, save_chain
+from .node import Node
 
-__all__ = ["Block", "Blockchain", "Mempool", "P2PNode", "RPCNode", "Wallet", "UTXO", "UTXOState",
+__all__ = ["Block", "Blockchain", "Mempool", "Node", "P2PNode", "RPCNode", "Wallet", "UTXO", "UTXOState",
            "UTXOTransaction", "UTXOWallet", "TransactionInput", "TransactionOutput", "address_from_public_key",
            "verify_signature", "save_chain", "load_chain"]

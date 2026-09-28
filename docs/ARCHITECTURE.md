@@ -26,6 +26,7 @@ The source-level component map is also available as [architecture.mmd](architect
 | `p2p.py` | Newline-delimited TCP transport and serialization | Network data is untrusted and admission-gated |
 | `rpc.py` | JSON-RPC HTTP read/write surface | RPC parameters are untrusted; private keys are never accepted |
 | `storage.py` | Versioned atomic JSON snapshots | Snapshots are validated before becoming live state |
+| `node.py` | Unified lifecycle for chain, RPC, P2P, mining, and snapshots | Startup rollback and explicit shutdown |
 
 ## 3. Data model
 
@@ -141,9 +142,11 @@ Current limitations:
 - No block announcement inventory protocol
 - Local development transport, not an internet-ready network
 
+Frames are capped at 1 MiB, message types are allowlisted, serialized block hashes are checked, and non-object payloads are rejected before dispatch. `Node` provides the recommended process boundary: it starts P2P first, starts RPC second, rolls back P2P if RPC startup fails, and stops both services explicitly.
+
 ## 8. RPC architecture
 
-`RPCNode` wraps `ThreadingHTTPServer` and dispatches JSON-RPC 2.0 requests. Reads expose height, balance, state root, mempool, and serialized blocks. Writes accept an already-signed serialized transaction and pass it through the same mempool validation path as P2P traffic.
+`RPCNode` wraps `ThreadingHTTPServer` and dispatches JSON-RPC 2.0 requests. Reads expose height, balance, state root, chain statistics, live UTXOs, transaction lookup, mempool, and serialized blocks. Writes accept an already-signed serialized transaction and pass it through the same mempool validation path as P2P traffic. A lightweight `GET /health` endpoint supports process probes.
 
 RPC never receives or generates private keys.
 

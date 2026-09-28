@@ -5,6 +5,7 @@ from pathlib import Path
 from aetherchain.blockchain import Block, Blockchain
 from aetherchain.crypto import G, generate_keypair, point_mul, sign_hash, verify_signature
 from aetherchain.ledger import SYSTEM, TransactionOutput, UTXOWallet, UTXOTransaction
+from aetherchain.node import Node
 from aetherchain.p2p import P2PNode
 from aetherchain.rpc import RPCNode
 from aetherchain.storage import load_chain, save_chain
@@ -79,6 +80,32 @@ class AetherChainTests(unittest.TestCase):
         result, error = rpc.handle({"id": 2, "method": "aether_getStateRoot", "params": []})
         self.assertEqual(result, chain.state.state_root())
         self.assertIsNone(error)
+        stats, error = rpc.handle({"jsonrpc": "2.0", "id": 3, "method": "aether_getChainStats", "params": []})
+        self.assertEqual(stats["height"], 1)
+        self.assertIsNone(error)
+        utxos, error = rpc.handle({"id": 4, "method": "aether_getUtxos", "params": [wallet.address]})
+        self.assertEqual(sum(item["amount"] for item in utxos), chain.state.get_balance(wallet.address))
+        self.assertIsNone(error)
+        self.assertTrue(chain.mempool.add_transaction(tx, chain.state))
+        tx_info, error = rpc.handle({"id": 5, "method": "aether_getTransactionByHash", "params": [tx.tx_id]})
+        self.assertEqual(tx_info["tx_id"], tx.tx_id)
+        self.assertIsNone(error)
+        _, error = rpc.handle({"jsonrpc": "1.0", "id": 6, "method": "eth_blockNumber", "params": []})
+        self.assertEqual(error["code"], -32600)
+
+    def test_node_lifecycle_and_wire_hash_integrity(self):
+        node = Node(Blockchain(difficulty=0), p2p_port=0, rpc_port=0)
+        self.assertFalse(node.running)
+        node.start()
+        self.assertTrue(node.running)
+        node.stop()
+        self.assertFalse(node.running)
+
+        block = Blockchain(difficulty=0).latest_block()
+        encoded = P2PNode.serialize_block(block)
+        encoded["hash"] = "0" * 64
+        with self.assertRaises(ValueError):
+            P2PNode.deserialize_block(encoded)
 
 
 if __name__ == "__main__":

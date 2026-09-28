@@ -48,6 +48,7 @@ python3 -m unittest discover -s tests -v
 | `Block` | `blockchain` | PoW block data structure and header hashing |
 | `Blockchain` | `blockchain` | Chain, mining, validation, difficulty, and fork choice |
 | `Mempool` | `blockchain` | Thread-safe pending transaction pool |
+| `Node` | `node` | Unified blockchain, RPC, P2P, mining, and snapshot lifecycle |
 | `Wallet` | `crypto` | secp256k1 keypair and address |
 | `UTXOWallet` | `ledger` | Wallet with UTXO selection and change creation |
 | `UTXOState` | `ledger` | Live UTXO set and state-root computation |
@@ -165,7 +166,8 @@ Blockchain(
     target_block_time=2.0,
     adjustment_interval=5,
     genesis_allocation=1_000_000,
-    genesis_address="AETH_GENESIS_RESERVE",
+                 genesis_address="AETH_GENESIS_RESERVE",
+                 max_block_transactions=10,
 )
 ```
 
@@ -186,6 +188,8 @@ Methods:
 - `expected_difficulty(next_index, previous_chain=None) -> int`: historical epoch-based difficulty.
 - `next_difficulty() -> int`: difficulty for the next locally mined block.
 - `mine_pending_transactions(miner_address, max_transactions=10) -> Block | None`: selects valid mempool transactions, collects fees, creates coinbase, commits the state root, mines, and removes included transactions.
+- `get_transaction(tx_id) -> UTXOTransaction | None`: searches pending and confirmed transactions.
+- `stats() -> dict`: returns height, difficulty, cumulative work, state root, UTXO count, and mempool size.
 - `validate_chain(candidate) -> tuple[bool, UTXOState | None, str]`: replay-validates links, hashes, PoW, difficulty, state transitions, roots, and rewards.
 - `replace_chain(candidate) -> bool`: adopts only a valid candidate with strictly greater cumulative work.
 - `is_chain_valid() -> bool`: validates the current chain and compares replayed state to live state.
@@ -202,6 +206,30 @@ Mempool(max_size=10_000)
 - `clear() -> None`
 
 All operations are protected by an `RLock`.
+
+`max_block_transactions` bounds the number of non-coinbase transactions selected for a block.
+
+## `node` API
+
+### `Node(blockchain=None, host="127.0.0.1", p2p_port=5001, rpc_port=8545)`
+
+Provides one lifecycle object for local operation:
+
+```python
+node = Node(Blockchain(difficulty=1), p2p_port=5001, rpc_port=8545)
+node.start()
+node.connect_peer("127.0.0.1", 5002)
+node.mine_once(miner.address)
+node.snapshot("snapshots/node.json")
+node.stop()
+```
+
+- `running -> bool`
+- `start()` starts P2P then RPC and rolls back P2P if RPC startup fails.
+- `stop()` shuts down both services.
+- `connect_peer(host, port) -> bool`
+- `mine_once(miner_address, max_transactions=None) -> Block | None`: mines and broadcasts a block.
+- `snapshot(path) -> None`
 
 ## `p2p` API
 
@@ -227,6 +255,8 @@ Message types:
 - `CHAIN_RESPONSE`: replay-validates and may adopt a higher-work chain.
 - `NEW_TRANSACTION`: validates before mempool admission.
 - `NEW_BLOCK`: validates against the current chain before appending.
+
+Frames are limited to 1 MiB and unknown message types or non-object payloads are rejected. Serialized blocks include their hash and deserialization verifies it.
 
 Serialization helpers:
 
@@ -257,13 +287,18 @@ Requests use JSON-RPC 2.0:
 | `aether_blockNumber` | `[]` | Same as above |
 | `eth_getBalance` | `[address]` | Hex integer balance |
 | `aether_getStateRoot` | `[]` | Current state-root hex string |
+| `aether_getChainStats` | `[]` | Height, difficulty, work, root, UTXO count, mempool size |
+| `aether_getUtxos` | `[address]` | Live UTXO records owned by an address |
 | `aether_getMempool` | `[]` | Transaction ID list |
+| `aether_getTransactionByHash` | `[tx_id]` | Serialized pending or confirmed transaction |
 | `eth_getBlockByNumber` | `[number]` | Serialized block or `null` |
 | `aether_getBlockByNumber` | `[number]` | Same as above |
 | `eth_sendRawTransaction` | `[serialized_tx_object]` | Transaction ID or error |
 | `aether_sendTransaction` | `[serialized_tx_object]` | Same as above |
 
 RPC errors use `-32601` for unknown methods, `-32602` for malformed parameters, and `-32000` for transaction rejection.
+
+`net_version` returns `"1"`, `web3_clientVersion` returns `"AetherChain/0.2"`, and `GET /health` returns `{"status":"ok"}` for process probes.
 
 ## `storage` API
 

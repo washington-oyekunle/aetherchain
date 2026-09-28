@@ -90,8 +90,8 @@ class Mempool:
 class Blockchain:
     def __init__(self, difficulty: int = 1, block_reward: int = 50_0000, target_block_time: float = 2.0,
                  adjustment_interval: int = 5, genesis_allocation: int = 1_000_000,
-                 genesis_address: str = "AETH_GENESIS_RESERVE"):
-        if difficulty < 0 or adjustment_interval < 1 or block_reward < 0 or target_block_time <= 0:
+                 genesis_address: str = "AETH_GENESIS_RESERVE", max_block_transactions: int = 10):
+        if difficulty < 0 or adjustment_interval < 1 or block_reward < 0 or target_block_time <= 0 or max_block_transactions < 1:
             raise ValueError("invalid blockchain parameters")
         self.initial_difficulty = difficulty
         self.difficulty = difficulty
@@ -100,6 +100,7 @@ class Blockchain:
         self.adjustment_interval = adjustment_interval
         self.genesis_allocation = genesis_allocation
         self.genesis_address = genesis_address
+        self.max_block_transactions = max_block_transactions
         self.state = UTXOState()
         self.mempool = Mempool()
         self.chain: list[Block] = []
@@ -143,7 +144,7 @@ class Blockchain:
 
     def mine_pending_transactions(self, miner_address: str, max_transactions: int = 10) -> Optional[Block]:
         with self._lock:
-            candidate = self.mempool.get_batch(max_transactions)
+            candidate = self.mempool.get_batch(min(max_transactions, self.max_block_transactions))
             selection_state = self.state.clone()
             valid: list[UTXOTransaction] = []
             fees = 0
@@ -220,3 +221,20 @@ class Blockchain:
     def get_block(self, index: int) -> Optional[Block]:
         with self._lock:
             return self.chain[index] if 0 <= index < len(self.chain) else None
+
+    def get_transaction(self, tx_id: str) -> Optional[UTXOTransaction]:
+        with self._lock:
+            pending = self.mempool.pending_transactions.get(tx_id)
+            if pending is not None:
+                return pending
+            for block in reversed(self.chain):
+                for tx in block.transactions:
+                    if tx.tx_id == tx_id:
+                        return tx
+            return None
+
+    def stats(self) -> dict[str, int | float | str]:
+        with self._lock:
+            return {"height": len(self.chain) - 1, "difficulty": self.latest_block().difficulty,
+                    "work": self.chain_work(), "state_root": self.state.state_root(),
+                    "utxo_count": len(self.state.utxo_pool), "mempool_size": len(self.mempool.pending_transactions)}

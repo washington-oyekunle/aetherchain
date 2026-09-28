@@ -17,7 +17,8 @@ def save_chain(blockchain: Blockchain, path: str | os.PathLike[str]) -> None:
             "version": 1,
             "config": {"difficulty": blockchain.initial_difficulty, "block_reward": blockchain.block_reward,
                        "target_block_time": blockchain.target_block_time, "adjustment_interval": blockchain.adjustment_interval,
-                       "genesis_allocation": blockchain.genesis_allocation, "genesis_address": blockchain.genesis_address},
+                       "genesis_allocation": blockchain.genesis_allocation, "genesis_address": blockchain.genesis_address,
+                       "max_block_transactions": blockchain.max_block_transactions},
             "chain": [P2PNode.serialize_block(block) for block in blockchain.chain],
         }
     destination.parent.mkdir(parents=True, exist_ok=True)

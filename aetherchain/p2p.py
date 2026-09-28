@@ -19,6 +19,8 @@ GET_CHAIN = "GET_CHAIN"
 CHAIN_RESPONSE = "CHAIN_RESPONSE"
 NEW_TRANSACTION = "NEW_TRANSACTION"
 NEW_BLOCK = "NEW_BLOCK"
+MAX_FRAME_BYTES = 1_048_576
+MESSAGE_TYPES = {HANDSHAKE, GET_CHAIN, CHAIN_RESPONSE, NEW_TRANSACTION, NEW_BLOCK}
 
 
 class P2PNode:
@@ -47,7 +49,7 @@ class P2PNode:
         self._server = None
 
     def connect(self, host: str, port: int) -> bool:
-        if (host, port) == (self.host, self.port):
+        if not self._running or (host, port) == (self.host, self.port):
             return False
         try:
             sock = socket.create_connection((host, port), timeout=2)
@@ -82,9 +84,13 @@ class P2PNode:
                 if not data:
                     return
                 buffer += data.decode()
+                if len(buffer.encode()) > MAX_FRAME_BYTES:
+                    return
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
                     if line.strip():
+                        if len(line.encode()) > MAX_FRAME_BYTES:
+                            return
                         address = self._process(sock, json.loads(line), address)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             return
@@ -94,6 +100,8 @@ class P2PNode:
 
     def _process(self, sock: socket.socket, message: dict[str, Any], address: tuple[str, int]) -> tuple[str, int]:
         kind, payload = message.get("type"), message.get("payload", {})
+        if kind not in MESSAGE_TYPES or not isinstance(payload, dict):
+            raise ValueError("unsupported or malformed peer message")
         if kind == HANDSHAKE:
             peer = (address[0], int(payload["listen_port"]))
             self.peers.add(peer)
@@ -143,7 +151,12 @@ class P2PNode:
 
     @staticmethod
     def _send(sock: socket.socket, kind: str, payload: dict[str, Any]) -> None:
-        sock.sendall((json.dumps({"type": kind, "payload": payload}, separators=(",", ":")) + "\n").encode())
+        if kind not in MESSAGE_TYPES:
+            raise ValueError("unsupported peer message")
+        encoded = (json.dumps({"type": kind, "payload": payload}, separators=(",", ":")) + "\n").encode()
+        if len(encoded) > MAX_FRAME_BYTES:
+            raise ValueError("peer message exceeds frame limit")
+        sock.sendall(encoded)
 
     @staticmethod
     def serialize_tx(tx: UTXOTransaction) -> dict[str, Any]:
@@ -166,6 +179,7 @@ class P2PNode:
     def serialize_block(cls, block: Block) -> dict[str, Any]:
         return {"index": block.index, "previous_hash": block.previous_hash, "difficulty": block.difficulty,
                 "timestamp": block.timestamp, "state_root": block.state_root, "nonce": block.nonce,
+                "hash": block.hash,
                 "transactions": [cls.serialize_tx(t) for t in block.transactions]}
 
     @classmethod
@@ -173,4 +187,6 @@ class P2PNode:
         block = Block(int(data["index"]), data["previous_hash"], [cls.deserialize_tx(t) for t in data["transactions"]],
                       int(data["difficulty"]), float(data["timestamp"]), data["state_root"], int(data["nonce"]))
         block.hash = block.calculate_hash()
+        if data.get("hash") not in (None, block.hash):
+            raise ValueError("serialized block hash mismatch")
         return block
