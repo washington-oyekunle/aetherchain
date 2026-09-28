@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from .blockchain import Block, Blockchain
+from .config import NodeConfig
+from .database import load_chain_sqlite, save_chain_sqlite
 from .p2p import P2PNode
 from .rpc import RPCNode
 from .storage import save_chain
@@ -13,8 +15,15 @@ class Node:
     """Owns the chain and optional network services with explicit lifecycle control."""
 
     def __init__(self, blockchain: Blockchain | None = None, host: str = "127.0.0.1",
-                 p2p_port: int = 5001, rpc_port: int = 8545):
-        self.blockchain = blockchain or Blockchain()
+                 p2p_port: int = 5001, rpc_port: int = 8545, data_dir: str | Path | None = None):
+        self.data_dir = Path(data_dir) if data_dir is not None else None
+        database = self.data_dir / "chain.sqlite3" if self.data_dir is not None else None
+        if blockchain is not None:
+            self.blockchain = blockchain
+        elif database is not None and database.exists():
+            self.blockchain = load_chain_sqlite(database)
+        else:
+            self.blockchain = Blockchain()
         self.p2p = P2PNode(host, p2p_port, self.blockchain)
         self.rpc = RPCNode(self.blockchain, host, rpc_port)
         self._running = False
@@ -22,6 +31,14 @@ class Node:
     @property
     def running(self) -> bool:
         return self._running
+
+    @classmethod
+    def from_config(cls, config: NodeConfig) -> "Node":
+        database = config.data_dir / "chain.sqlite3"
+        blockchain = None
+        if not database.exists():
+            blockchain = Blockchain(**config.blockchain_kwargs())
+        return cls(blockchain, config.host, config.p2p_port, config.rpc_port, config.data_dir)
 
     def start(self) -> None:
         if self._running:
@@ -35,6 +52,7 @@ class Node:
         self._running = True
 
     def stop(self) -> None:
+        self.persist()
         self.rpc.stop()
         self.p2p.stop()
         self._running = False
@@ -47,7 +65,13 @@ class Node:
         block = self.blockchain.mine_pending_transactions(miner_address, limit)
         if block is not None:
             self.p2p.broadcast_block(block)
+            self.persist()
         return block
 
     def snapshot(self, path: str | Path) -> None:
         save_chain(self.blockchain, path)
+
+    def persist(self) -> None:
+        if self.data_dir is not None:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            save_chain_sqlite(self.blockchain, self.data_dir / "chain.sqlite3")

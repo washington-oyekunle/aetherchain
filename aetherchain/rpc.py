@@ -77,7 +77,7 @@ class RPCNode:
             if method == "net_version":
                 return "1", None
             if method == "web3_clientVersion":
-                return "AetherChain/0.2", None
+                return "AetherChain/0.3.0", None
             if method == "eth_getBalance":
                 address = params[0]
                 return quantity(self.blockchain.state.get_balance(address)), None

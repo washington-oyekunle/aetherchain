@@ -29,6 +29,17 @@ Run the tests:
 python3 -m unittest discover -s tests -v
 ```
 
+Install the developer-preview CLI locally:
+
+```bash
+python3 -m pip install -e .
+aether config-init
+aether wallet create --output wallet.json
+aether node status
+```
+
+The CLI provides `config-init`, `wallet create`, `wallet show`, `node start`, `node status`, `node validate`, and `mine` commands. Use `--config path/to/aether.toml` to select a configuration file.
+
 ## Units and invariants
 
 - Monetary values are **integer base units**. Floats are rejected.
@@ -231,6 +242,18 @@ node.stop()
 - `mine_once(miner_address, max_transactions=None) -> Block | None`: mines and broadcasts a block.
 - `snapshot(path) -> None`
 
+`Node.from_config(NodeConfig.load("aether.toml"))` loads an existing SQLite chain from `data_dir/chain.sqlite3` when present. Mining and shutdown automatically persist the current chain.
+
+## Configuration and persistence
+
+`NodeConfig` reads Python 3.11 TOML with `[node]` and `[consensus]` sections. The generated configuration includes host, P2P/RPC ports, data directory, reward, difficulty, adjustment interval, genesis settings, and block-size limit.
+
+`save_chain_sqlite` and `load_chain_sqlite` provide restart-safe developer persistence. The database is validated by replay before it becomes live state. JSON snapshots remain available for portable export.
+
+## Wallet keystores
+
+`save_keystore` and `load_keystore` create password-protected JSON wallet files using PBKDF2-HMAC-SHA256 and an authenticated keystream. This is a **developer-preview convenience format**, not a replacement for an audited wallet, HSM, or operating-system secret store. Do not use it for real funds without independent security review.
+
 ## `p2p` API
 
 ### `P2PNode(blockchain, host, port)`
@@ -298,7 +321,7 @@ Requests use JSON-RPC 2.0:
 
 RPC errors use `-32601` for unknown methods, `-32602` for malformed parameters, and `-32000` for transaction rejection.
 
-`net_version` returns `"1"`, `web3_clientVersion` returns `"AetherChain/0.2"`, and `GET /health` returns `{"status":"ok"}` for process probes.
+`net_version` returns `"1"`, `web3_clientVersion` returns `"AetherChain/0.3.0"`, and `GET /health` returns `{"status":"ok"}` for process probes.
 
 ## `storage` API
 

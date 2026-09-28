@@ -2,6 +2,19 @@
 
 A zero-dependency Python implementation of a compact, auditable blockchain node assembled from the supplied components.
 
+> **Developer preview:** suitable for learning, local development, and private testnets. Do not use it to hold real value or expose it to the public internet without a security review.
+
+## Five-minute start
+
+```bash
+python3 -m pip install -e .
+aether config-init
+aether wallet create --output wallet.json --password change-me
+aether node status
+```
+
+The default configuration stores a restart-safe SQLite chain at `./data/chain.sqlite3`. Run `aether node start` to launch the HTTP RPC and P2P services, or `aether node validate` to replay-validate the persisted chain.
+
 ## Protocol design
 
 AetherChain deliberately selects one coherent branch: **UTXO state + secp256k1 ECDSA + Proof of Work**. The earlier account/PBFT ideas are not mixed into the same state machine because they have different transaction, finality, validator, and reward semantics.
@@ -21,6 +34,8 @@ AetherChain deliberately selects one coherent branch: **UTXO state + secp256k1 E
 - Newline-delimited JSON TCP P2P transport with validated block/chain admission
 - JSON-RPC 2.0 HTTP node interface
 - Atomic JSON snapshots with validated restore
+- Installable `aether` CLI with TOML configuration
+- SQLite-backed restart persistence and developer keystores
 - Standard-library-only runtime dependencies
 
 ## Run the demo

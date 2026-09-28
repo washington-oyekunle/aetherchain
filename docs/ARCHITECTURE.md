@@ -25,7 +25,7 @@ The source-level component map is also available as [architecture.mmd](architect
 | `blockchain.py` | Mempool, mining, reward accounting, replay validation, fork choice | Candidate blocks/chains are fully replayed before adoption |
 | `p2p.py` | Newline-delimited TCP transport and serialization | Network data is untrusted and admission-gated |
 | `rpc.py` | JSON-RPC HTTP read/write surface | RPC parameters are untrusted; private keys are never accepted |
-| `storage.py` | Versioned atomic JSON snapshots | Snapshots are validated before becoming live state |
+| `storage.py` / `database.py` | Versioned JSON snapshots and SQLite restart persistence | Snapshots/databases are validated before becoming live state |
 | `node.py` | Unified lifecycle for chain, RPC, P2P, mining, and snapshots | Startup rollback and explicit shutdown |
 
 ## 3. Data model
@@ -152,7 +152,7 @@ RPC never receives or generates private keys.
 
 ## 9. Persistence
 
-`save_chain` writes a versioned snapshot containing configuration and serialized blocks. It writes to a sibling temporary file, flushes and `fsync`s it, then atomically replaces the destination. `load_chain` reconstructs the configured node and refuses to return until the full chain has replay-validated.
+`save_chain` writes a versioned snapshot containing configuration and serialized blocks. It writes to a sibling temporary file, flushes and `fsync`s it, then atomically replaces the destination. `load_chain` reconstructs the configured node and refuses to return until the full chain has replay-validated. The CLI and `Node` use SQLite for restart-safe local persistence; the database stores configuration plus serialized blocks and is replay-validated on recovery.
 
 The snapshot is a recovery/export format, not an append-only database or crash-consistent multi-process journal.
 

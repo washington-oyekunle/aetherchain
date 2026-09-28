@@ -129,3 +129,13 @@ class Wallet:
     def __init__(self) -> None:
         self.private_key, self.public_key = generate_keypair()
         self.address = address_from_public_key(self.public_key)
+
+    @classmethod
+    def from_private_key(cls, private_key: int) -> "Wallet":
+        if not 1 <= private_key < N:
+            raise ValueError("private key out of range")
+        wallet = cls.__new__(cls)
+        wallet.private_key = private_key
+        wallet.public_key = point_mul(private_key, G)
+        wallet.address = address_from_public_key(wallet.public_key)
+        return wallet

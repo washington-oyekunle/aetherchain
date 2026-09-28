@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aetherchain"
+version = "0.3.0"
+description = "Auditable educational UTXO Proof-of-Work blockchain node"
+readme = "aetherchain/README.md"
+requires-python = ">=3.11"
+authors = [{name = "AetherChain contributors"}]
+license = {text = "MIT"}
+classifiers = ["Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "Topic :: Security :: Cryptography"]
+
+[project.scripts]
+aether = "aetherchain.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["aetherchain*"]

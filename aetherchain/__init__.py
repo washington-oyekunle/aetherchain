@@ -6,7 +6,11 @@ from .p2p import P2PNode
 from .rpc import RPCNode
 from .storage import load_chain, save_chain
 from .node import Node
+from .config import NodeConfig
+from .database import load_chain_sqlite, save_chain_sqlite
+from .keystore import load_keystore, save_keystore
 
-__all__ = ["Block", "Blockchain", "Mempool", "Node", "P2PNode", "RPCNode", "Wallet", "UTXO", "UTXOState",
+__all__ = ["Block", "Blockchain", "Mempool", "Node", "NodeConfig", "P2PNode", "RPCNode", "Wallet", "UTXO", "UTXOState",
            "UTXOTransaction", "UTXOWallet", "TransactionInput", "TransactionOutput", "address_from_public_key",
-           "verify_signature", "save_chain", "load_chain"]
+           "verify_signature", "save_chain", "load_chain", "save_chain_sqlite", "load_chain_sqlite",
+           "save_keystore", "load_keystore"]
